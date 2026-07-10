@@ -5,51 +5,131 @@ on:
     branches:
       - master
 
+  # Allows manual deployment from GitHub → Actions
+  workflow_dispatch:
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      # 1. Download repository code
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      # 2. Configure AWS credentials on the GitHub runner
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - uses: aws-actions/amazon-ecr-login@v2
+      # 3. Log the GitHub runner in to Amazon ECR
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build Image
+      # 4. Build and push the Docker image
+      - name: Build and push Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build -t fastapi-app .
+          set -euo pipefail
 
-      - name: Tag Image
-        run: |
-          docker tag fastapi-app:latest \
-          ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:latest
+          echo "Building Docker image..."
 
-      - name: Push Image
-        run: |
-          docker push \
-          ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:latest
+          docker build \
+            --tag "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
+            --tag "$ECR_REGISTRY/$ECR_REPOSITORY:latest" \
+            .
 
+          echo "Pushing commit-tagged image..."
+
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+          echo "Pushing latest image..."
+
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:latest"
+
+      # 5. Connect to EC2 and deploy the image
       - name: Deploy to EC2
         uses: appleboy/ssh-action@v1.2.0
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ github.sha }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+
+          # Pass these environment variables to the remote EC2 shell
+          envs: AWS_REGION,AWS_ACCOUNT_ID,ECR_REPOSITORY,IMAGE_TAG
+
           script: |
-            aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+            set -euo pipefail
 
-            docker pull ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:latest
+            CONTAINER_NAME="social-feed-api"
+            ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+            IMAGE_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
 
-            docker stop fastapi || true
-            docker rm fastapi || true
+            echo "Authenticating EC2 with Amazon ECR..."
 
-            docker run -d \
-              --name fastapi \
-              -p 80:8000 \
+            aws ecr get-login-password \
+              --region "$AWS_REGION" \
+              | docker login \
+                  --username AWS \
+                  --password-stdin "$ECR_REGISTRY"
+
+            echo "Pulling Docker image: $IMAGE_URI"
+
+            docker pull "$IMAGE_URI"
+
+            echo "Stopping the existing container, if present..."
+
+            if docker ps -a \
+              --format '{{.Names}}' \
+              | grep -qx "$CONTAINER_NAME"; then
+              docker stop "$CONTAINER_NAME" || true
+              docker rm "$CONTAINER_NAME" || true
+            fi
+
+            echo "Starting the new container..."
+
+            docker run \
+              --detach \
+              --name "$CONTAINER_NAME" \
+              --publish 80:8000 \
               --restart unless-stopped \
-              ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:latest
+              "$IMAGE_URI"
+
+            echo "Waiting for the container to start..."
+
+            sleep 5
+
+            echo "Checking container status..."
+
+            if ! docker ps \
+              --format '{{.Names}}' \
+              | grep -qx "$CONTAINER_NAME"; then
+              echo "Deployment failed: container is not running."
+              docker logs "$CONTAINER_NAME" || true
+              exit 1
+            fi
+
+            echo "Container is running successfully."
+
+            docker ps \
+              --filter "name=$CONTAINER_NAME" \
+              --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'
+
+            echo "Removing unused Docker images..."
+
+            docker image prune --force
+
+            echo "Deployment completed successfully."
