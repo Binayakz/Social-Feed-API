@@ -106,6 +106,7 @@ jobs:
               --name "$CONTAINER_NAME" \
               --publish 80:8000 \
               --restart unless-stopped \
+              --env-file /home/ubuntu/social-feed-api/.env \
               "$IMAGE_URI"
 
             echo "Waiting for the container to start..."
