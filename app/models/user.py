@@ -1,10 +1,14 @@
 import uuid
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.models.mixins import TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.post import Post
 
 
 class User(TimestampMixin, Base):
@@ -18,6 +22,8 @@ class User(TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
+
+    posts: Mapped[list["Post"]] = relationship(back_populates="author", passive_deletes=True, )
 
     @property
     def full_name(self) -> str:
