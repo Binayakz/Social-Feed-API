@@ -21,6 +21,16 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     SYNC_DATABASE_URL: str
 
+    AWS_ACCESS_KEY_ID: str | None = None
+    AWS_SECRET_ACCESS_KEY: str | None = None
+    AWS_SESSION_TOKEN: str | None = None
+    AWS_REGION: str
+    S3_BUCKET_NAME: str
+    S3_PUBLIC_BASE_URL: str
+    S3_ENDPOINT_URL: str | None = None
+    S3_OBJECT_PREFIX: str = "post-images"
+    MAX_IMAGE_UPLOAD_BYTES: int = 10 * 1024 * 1024
+
     CORS_ORIGINS: list[str] = Field(
         default_factory=lambda: ["http://localhost:3000"]
     )
