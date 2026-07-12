@@ -9,6 +9,7 @@ from app.models.mixins import TimestampMixin
 
 if TYPE_CHECKING:
     from app.models.post import Post
+    from app.models.comment import Comment
 
 
 class User(TimestampMixin, Base):
@@ -24,6 +25,10 @@ class User(TimestampMixin, Base):
     )
 
     posts: Mapped[list["Post"]] = relationship(back_populates="author", passive_deletes=True, )
+    comments: Mapped[list["Comment"]] = relationship(
+        back_populates="author",
+        passive_deletes=True,
+    )
 
     @property
     def full_name(self) -> str:
