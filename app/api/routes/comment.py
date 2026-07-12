@@ -4,7 +4,11 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import CurrentUser, DBSession
 from app.schemas.comment import CommentCreate, CommentResponse
-from app.services.comment_service import create_comment, list_post_comments
+from app.services.comment_service import (
+    build_comment_response,
+    create_comment,
+    list_post_comments,
+)
 
 router = APIRouter(prefix="/posts", tags=["comments"])
 
@@ -32,7 +36,7 @@ async def create_comment_endpoint(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    return comment
+    return build_comment_response(comment, current_user.id)
 
 
 @router.get(
@@ -54,4 +58,4 @@ async def list_post_comments_endpoint(
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
-    return comments
+    return [build_comment_response(comment, current_user.id) for comment in comments]

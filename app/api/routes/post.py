@@ -2,7 +2,11 @@ from fastapi import APIRouter, Query, status
 
 from app.api.deps import CurrentUser, DBSession
 from app.schemas.post import PostCreate, PostResponse
-from app.services.post_service import create_post, list_feed_posts
+from app.services.post_service import (
+    build_post_response,
+    create_post,
+    list_feed_posts,
+)
 
 router = APIRouter(prefix="/posts", tags=["posts"])
 
@@ -22,7 +26,7 @@ async def create_post_endpoint(
         author_id=current_user.id,
         post_in=post_in,
     )
-    return post
+    return build_post_response(post, current_user.id)
 
 
 @router.get(
@@ -42,4 +46,4 @@ async def list_posts_endpoint(
         limit=limit,
         offset=offset,
     )
-    return posts
+    return [build_post_response(post, current_user.id) for post in posts]

@@ -30,5 +30,8 @@ class PostResponse(BaseModel):
     image_url: str | None
     visibility: PostVisibility
     author: PostAuthorResponse
+    like_count: int
+    comment_count: int
+    liked_by_me: bool
     created_at: datetime
     updated_at: datetime

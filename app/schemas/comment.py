@@ -27,6 +27,8 @@ class ReplyResponse(BaseModel):
     parent_id: uuid.UUID | None
     content: str
     author: CommentAuthorResponse
+    like_count: int
+    liked_by_me: bool
     created_at: datetime
     updated_at: datetime
 
@@ -40,6 +42,8 @@ class CommentResponse(BaseModel):
     parent_id: uuid.UUID | None
     content: str
     author: CommentAuthorResponse
+    like_count: int
+    liked_by_me: bool
     replies: list[ReplyResponse] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime

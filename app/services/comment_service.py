@@ -5,7 +5,43 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models import Comment, Post, PostVisibility
-from app.schemas.comment import CommentCreate
+from app.schemas.comment import (
+    CommentAuthorResponse,
+    CommentCreate,
+    CommentResponse,
+    ReplyResponse,
+)
+
+
+def build_reply_response(reply: Comment, viewer_id: uuid.UUID) -> ReplyResponse:
+    return ReplyResponse(
+        id=reply.id,
+        post_id=reply.post_id,
+        author_id=reply.author_id,
+        parent_id=reply.parent_id,
+        content=reply.content,
+        author=CommentAuthorResponse.model_validate(reply.author),
+        like_count=len(reply.likes),
+        liked_by_me=any(like.user_id == viewer_id for like in reply.likes),
+        created_at=reply.created_at,
+        updated_at=reply.updated_at,
+    )
+
+
+def build_comment_response(comment: Comment, viewer_id: uuid.UUID) -> CommentResponse:
+    return CommentResponse(
+        id=comment.id,
+        post_id=comment.post_id,
+        author_id=comment.author_id,
+        parent_id=comment.parent_id,
+        content=comment.content,
+        author=CommentAuthorResponse.model_validate(comment.author),
+        like_count=len(comment.likes),
+        liked_by_me=any(like.user_id == viewer_id for like in comment.likes),
+        replies=[build_reply_response(reply, viewer_id) for reply in comment.replies],
+        created_at=comment.created_at,
+        updated_at=comment.updated_at,
+    )
 
 
 async def _get_visible_post(
@@ -36,7 +72,9 @@ async def create_comment(
 
     if comment_in.parent_id is not None:
         parent_result = await db.execute(
-            select(Comment).where(Comment.id == comment_in.parent_id).where(Comment.post_id == post_id)
+            select(Comment)
+            .where(Comment.id == comment_in.parent_id)
+            .where(Comment.post_id == post_id)
         )
         parent_comment = parent_result.scalar_one_or_none()
 
@@ -58,7 +96,12 @@ async def create_comment(
 
     result = await db.execute(
         select(Comment)
-        .options(selectinload(Comment.author), selectinload(Comment.replies).selectinload(Comment.author))
+        .options(
+            selectinload(Comment.author),
+            selectinload(Comment.likes),
+            selectinload(Comment.replies).selectinload(Comment.author),
+            selectinload(Comment.replies).selectinload(Comment.likes),
+        )
         .where(Comment.id == comment.id)
     )
     return result.scalar_one()
@@ -77,7 +120,9 @@ async def list_post_comments(
         select(Comment)
         .options(
             selectinload(Comment.author),
+            selectinload(Comment.likes),
             selectinload(Comment.replies).selectinload(Comment.author),
+            selectinload(Comment.replies).selectinload(Comment.likes),
         )
         .where(Comment.post_id == post_id)
         .where(Comment.parent_id.is_(None))
