@@ -10,6 +10,8 @@ from app.models.mixins import TimestampMixin
 if TYPE_CHECKING:
     from app.models.post import Post
     from app.models.comment import Comment
+    from app.models.post_like import PostLike
+    from app.models.comment_like import CommentLike
 
 
 class User(TimestampMixin, Base):
@@ -27,6 +29,15 @@ class User(TimestampMixin, Base):
     posts: Mapped[list["Post"]] = relationship(back_populates="author", passive_deletes=True, )
     comments: Mapped[list["Comment"]] = relationship(
         back_populates="author",
+        passive_deletes=True,
+    )
+
+    post_likes: Mapped[list["PostLike"]] = relationship(
+        back_populates="user",
+        passive_deletes=True,
+    )
+    comment_likes: Mapped[list["CommentLike"]] = relationship(
+        back_populates="user",
         passive_deletes=True,
     )
 

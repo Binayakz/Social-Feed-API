@@ -11,6 +11,7 @@ from app.models.mixins import TimestampMixin
 if TYPE_CHECKING:
     from app.models.user import User
     from app.models.comment import Comment
+    from app.models.post_like import PostLike
 
 
 class PostVisibility(StrEnum):
@@ -41,6 +42,10 @@ class Post(TimestampMixin, Base):
 
     author: Mapped["User"] = relationship(back_populates="posts")
     comments: Mapped[list["Comment"]] = relationship(
+        back_populates="post",
+        passive_deletes=True,
+    )
+    likes: Mapped[list["PostLike"]] = relationship(
         back_populates="post",
         passive_deletes=True,
     )

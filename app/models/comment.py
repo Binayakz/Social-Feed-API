@@ -10,6 +10,7 @@ from app.models.mixins import TimestampMixin
 if TYPE_CHECKING:
     from app.models.post import Post
     from app.models.user import User
+    from app.models.comment_like import CommentLike
 
 
 class Comment(TimestampMixin, Base):
@@ -47,4 +48,8 @@ class Comment(TimestampMixin, Base):
         back_populates="parent",
         passive_deletes=True,
         order_by="Comment.created_at",
+    )
+    likes: Mapped[list["CommentLike"]] = relationship(
+        back_populates="comment",
+        passive_deletes=True,
     )
