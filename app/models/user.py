@@ -19,11 +19,6 @@ class User(TimestampMixin, Base):
         Boolean, nullable=False, default=True, server_default="true"
     )
 
-    posts = relationship("Post", back_populates="author", passive_deletes=True)
-    comments = relationship("Comment", back_populates="author", passive_deletes=True)
-    post_likes = relationship("PostLike", back_populates="user", passive_deletes=True)
-    comment_likes = relationship("CommentLike", back_populates="user", passive_deletes=True)
-
     @property
     def full_name(self) -> str:
         return f"{self.first_name} {self.last_name}".strip()
