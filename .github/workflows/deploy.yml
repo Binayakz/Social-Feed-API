@@ -2,22 +2,21 @@ name: Deploy Social Feed API
 
 on:
   push:
-    branches:
-      - master
-
-  # Allows manual deployment from GitHub → Actions
+    branches: [ master ]
   workflow_dispatch:
+
+concurrency:
+  group: deploy-social-feed-api-master
+  cancel-in-progress: true
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Download repository code
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Configure AWS credentials on the GitHub runner
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -25,12 +24,10 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      # 3. Log the GitHub runner in to Amazon ECR
       - name: Log in to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      # 4. Build and push the Docker image
       - name: Build and push Docker image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
@@ -40,21 +37,17 @@ jobs:
           set -euo pipefail
 
           echo "Building Docker image..."
-
           docker build \
             --tag "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
             --tag "$ECR_REGISTRY/$ECR_REPOSITORY:latest" \
             .
 
           echo "Pushing commit-tagged image..."
-
           docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
           echo "Pushing latest image..."
-
           docker push "$ECR_REGISTRY/$ECR_REPOSITORY:latest"
 
-      # 5. Connect to EC2 and deploy the image
       - name: Deploy to EC2
         uses: appleboy/ssh-action@v1.2.0
         env:
@@ -67,10 +60,7 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
-
-          # Pass these environment variables to the remote EC2 shell
           envs: AWS_REGION,AWS_ACCOUNT_ID,ECR_REPOSITORY,IMAGE_TAG
-
           script: |
             set -euo pipefail
 
@@ -79,7 +69,6 @@ jobs:
             IMAGE_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
 
             echo "Authenticating EC2 with Amazon ECR..."
-
             aws ecr get-login-password \
               --region "$AWS_REGION" \
               | docker login \
@@ -87,20 +76,15 @@ jobs:
                   --password-stdin "$ECR_REGISTRY"
 
             echo "Pulling Docker image: $IMAGE_URI"
-
             docker pull "$IMAGE_URI"
 
             echo "Stopping the existing container, if present..."
-
-            if docker ps -a \
-              --format '{{.Names}}' \
-              | grep -qx "$CONTAINER_NAME"; then
+            if docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
               docker stop "$CONTAINER_NAME" || true
               docker rm "$CONTAINER_NAME" || true
             fi
 
             echo "Starting the new container..."
-
             docker run \
               --detach \
               --name "$CONTAINER_NAME" \
@@ -109,28 +93,45 @@ jobs:
               --env-file /home/ubuntu/social-feed-api/.env \
               "$IMAGE_URI"
 
-            echo "Waiting for the container to start..."
+            echo "Verifying running image..."
+            RUNNING_IMAGE=$(docker inspect "$CONTAINER_NAME" --format '{{.Config.Image}}')
+            echo "Expected image: $IMAGE_URI"
+            echo "Running image:  $RUNNING_IMAGE"
 
-            sleep 5
+            if [ "$RUNNING_IMAGE" != "$IMAGE_URI" ]; then
+              echo "Deployment failed: running image does not match expected image."
+              docker logs "$CONTAINER_NAME" || true
+              exit 1
+            fi
 
-            echo "Checking container status..."
+            echo "Waiting for application health check..."
+            for i in $(seq 1 30); do
+              if curl -fsS http://127.0.0.1/health >/dev/null; then
+                echo "Application is healthy."
+                break
+              fi
 
-            if ! docker ps \
-              --format '{{.Names}}' \
-              | grep -qx "$CONTAINER_NAME"; then
-              echo "Deployment failed: container is not running."
+              if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
+                echo "Deployment failed: container exited during startup."
+                docker logs "$CONTAINER_NAME" || true
+                exit 1
+              fi
+
+              sleep 2
+            done
+
+            if ! curl -fsS http://127.0.0.1/health >/dev/null; then
+              echo "Deployment failed: /health did not become ready in time."
               docker logs "$CONTAINER_NAME" || true
               exit 1
             fi
 
             echo "Container is running successfully."
-
             docker ps \
               --filter "name=$CONTAINER_NAME" \
               --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'
 
             echo "Removing unused Docker images..."
-
             docker image prune --force
 
             echo "Deployment completed successfully."
