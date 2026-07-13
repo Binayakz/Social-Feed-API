@@ -1,7 +1,7 @@
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, Index, Text, Uuid
+from sqlalchemy import ForeignKey, Index, Text, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -16,8 +16,24 @@ if TYPE_CHECKING:
 class Comment(TimestampMixin, Base):
     __tablename__ = "comments"
     __table_args__ = (
-        Index("ix_comments_post_parent_created_at", "post_id", "parent_id", "created_at"),
-        Index("ix_comments_author_created_at", "author_id", "created_at"),
+        Index(
+            "ix_comments_post_parent_created_at_id_desc",
+            "post_id",
+            "parent_id",
+            text("created_at DESC"),
+            text("id DESC"),
+        ),
+        Index(
+            "ix_comments_post_created_at_id_desc",
+            "post_id",
+            text("created_at DESC"),
+            text("id DESC"),
+        ),
+        Index(
+            "ix_comments_author_created_at",
+            "author_id",
+            "created_at",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
