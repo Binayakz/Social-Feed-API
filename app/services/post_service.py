@@ -1,11 +1,14 @@
+import base64
+import json
 import uuid
+from datetime import datetime
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models import Comment, Post, PostLike, PostVisibility
-from app.schemas.post import PostAuthorResponse, PostCreate, PostResponse
+from app.schemas.post import PostAuthorResponse, PostCreate, PostFeedPage, PostResponse
 
 
 def _visibility_clause(viewer_id: uuid.UUID):
@@ -80,6 +83,38 @@ def _build_feed_stmt(viewer_id: uuid.UUID):
     )
 
 
+def _encode_cursor(created_at: datetime, post_id: uuid.UUID) -> str:
+    payload = {
+        "created_at": created_at.isoformat(),
+        "id": str(post_id),
+    }
+    raw = json.dumps(payload).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("utf-8")
+
+
+def _decode_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
+    try:
+        raw = base64.urlsafe_b64decode(cursor.encode("utf-8")).decode("utf-8")
+        payload = json.loads(raw)
+        created_at = datetime.fromisoformat(payload["created_at"])
+        post_id = uuid.UUID(payload["id"])
+        return created_at, post_id
+    except (ValueError, KeyError, json.JSONDecodeError) as exc:
+        raise ValueError("Invalid cursor") from exc
+
+
+def _cursor_clause(cursor: str):
+    cursor_created_at, cursor_post_id = _decode_cursor(cursor)
+
+    return or_(
+        Post.created_at < cursor_created_at,
+        and_(
+            Post.created_at == cursor_created_at,
+            Post.id < cursor_post_id,
+        ),
+    )
+
+
 async def create_post(
         db: AsyncSession,
         author_id: uuid.UUID,
@@ -130,17 +165,34 @@ async def list_feed_posts(
         db: AsyncSession,
         viewer_id: uuid.UUID,
         limit: int = 20,
-        offset: int = 0,
-) -> list[PostResponse]:
+        cursor: str | None = None,
+) -> PostFeedPage:
     stmt = (
         _build_feed_stmt(viewer_id)
         .where(_visibility_clause(viewer_id))
         .order_by(Post.created_at.desc(), Post.id.desc())
-        .offset(offset)
-        .limit(limit)
     )
+
+    if cursor:
+        stmt = stmt.where(_cursor_clause(cursor))
+
+    stmt = stmt.limit(limit + 1)
 
     result = await db.execute(stmt)
     rows = result.all()
 
-    return [_serialize_post_row(row) for row in rows]
+    has_more = len(rows) > limit
+    visible_rows = rows[:limit]
+
+    items = [_serialize_post_row(row) for row in visible_rows]
+
+    next_cursor = None
+    if has_more and visible_rows:
+        last_post = visible_rows[-1][0]
+        next_cursor = _encode_cursor(last_post.created_at, last_post.id)
+
+    return PostFeedPage(
+        items=items,
+        next_cursor=next_cursor,
+        has_more=has_more,
+    )

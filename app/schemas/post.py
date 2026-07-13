@@ -35,3 +35,9 @@ class PostResponse(BaseModel):
     liked_by_me: bool
     created_at: datetime
     updated_at: datetime
+
+
+class PostFeedPage(BaseModel):
+    items: list[PostResponse]
+    next_cursor: str | None
+    has_more: bool
