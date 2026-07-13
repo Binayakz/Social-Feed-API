@@ -1,8 +1,10 @@
 import uuid
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.deps import CurrentUser, DBSession
+from app.core.config import settings
+from app.core.rate_limit import user_rate_limit
 from app.schemas.comment import CommentCreate, CommentPage, CommentResponse
 from app.services.comment_service import create_comment, list_post_comments
 
@@ -13,6 +15,15 @@ router = APIRouter(prefix="/posts", tags=["comments"])
     "/{post_id}/comments",
     response_model=CommentResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[
+        Depends(
+            user_rate_limit(
+                scope="comments:create",
+                limit=settings.RATE_LIMIT_COMMENT_WRITE_MAX_REQUESTS,
+                window_seconds=settings.RATE_LIMIT_COMMENT_WRITE_WINDOW_SECONDS,
+            )
+        )
+    ],
 )
 async def create_comment_endpoint(
         post_id: uuid.UUID,

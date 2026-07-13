@@ -1,6 +1,8 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.deps import CurrentUser, DBSession
+from app.core.config import settings
+from app.core.rate_limit import ip_rate_limit
 from app.core.security import create_access_token
 from app.schemas.auth import LoginRequest, TokenResponse
 from app.schemas.user import UserCreate, UserResponse
@@ -17,6 +19,15 @@ router = APIRouter(prefix="/auth", tags=["auth"])
     "/register",
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[
+        Depends(
+            ip_rate_limit(
+                scope="auth:register",
+                limit=settings.RATE_LIMIT_AUTH_REGISTER_MAX_REQUESTS,
+                window_seconds=settings.RATE_LIMIT_AUTH_REGISTER_WINDOW_SECONDS,
+            )
+        )
+    ],
 )
 async def register(
         user_in: UserCreate,
@@ -37,6 +48,15 @@ async def register(
     "/login",
     response_model=TokenResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[
+        Depends(
+            ip_rate_limit(
+                scope="auth:login",
+                limit=settings.RATE_LIMIT_AUTH_LOGIN_MAX_REQUESTS,
+                window_seconds=settings.RATE_LIMIT_AUTH_LOGIN_WINDOW_SECONDS,
+            )
+        )
+    ],
 )
 async def login(
         credentials: LoginRequest,

@@ -1,8 +1,10 @@
 import uuid
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.deps import CurrentUser, DBSession
+from app.core.config import settings
+from app.core.rate_limit import user_rate_limit
 from app.schemas.like import LikeActionResponse, LikeListResponse
 from app.services.like_service import (
     like_comment,
@@ -20,6 +22,15 @@ router = APIRouter(tags=["likes"])
     "/posts/{post_id}/like",
     response_model=LikeActionResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[
+        Depends(
+            user_rate_limit(
+                scope="likes:post:create",
+                limit=settings.RATE_LIMIT_LIKE_WRITE_MAX_REQUESTS,
+                window_seconds=settings.RATE_LIMIT_LIKE_WRITE_WINDOW_SECONDS,
+            )
+        )
+    ],
 )
 async def like_post_endpoint(
         post_id: uuid.UUID,
@@ -38,6 +49,15 @@ async def like_post_endpoint(
     "/posts/{post_id}/like",
     response_model=LikeActionResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[
+        Depends(
+            user_rate_limit(
+                scope="likes:post:delete",
+                limit=settings.RATE_LIMIT_LIKE_WRITE_MAX_REQUESTS,
+                window_seconds=settings.RATE_LIMIT_LIKE_WRITE_WINDOW_SECONDS,
+            )
+        )
+    ],
 )
 async def unlike_post_endpoint(
         post_id: uuid.UUID,
@@ -74,6 +94,15 @@ async def list_post_likers_endpoint(
     "/comments/{comment_id}/like",
     response_model=LikeActionResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[
+        Depends(
+            user_rate_limit(
+                scope="likes:comment:create",
+                limit=settings.RATE_LIMIT_LIKE_WRITE_MAX_REQUESTS,
+                window_seconds=settings.RATE_LIMIT_LIKE_WRITE_WINDOW_SECONDS,
+            )
+        )
+    ],
 )
 async def like_comment_endpoint(
         comment_id: uuid.UUID,
@@ -92,6 +121,15 @@ async def like_comment_endpoint(
     "/comments/{comment_id}/like",
     response_model=LikeActionResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[
+        Depends(
+            user_rate_limit(
+                scope="likes:comment:delete",
+                limit=settings.RATE_LIMIT_LIKE_WRITE_MAX_REQUESTS,
+                window_seconds=settings.RATE_LIMIT_LIKE_WRITE_WINDOW_SECONDS,
+            )
+        )
+    ],
 )
 async def unlike_comment_endpoint(
         comment_id: uuid.UUID,

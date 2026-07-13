@@ -1,6 +1,8 @@
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.deps import CurrentUser, DBSession
+from app.core.config import settings
+from app.core.rate_limit import user_rate_limit
 from app.schemas.post import PostCreate, PostFeedPage, PostResponse
 from app.services.post_service import create_post, list_feed_posts
 
@@ -11,6 +13,15 @@ router = APIRouter(prefix="/posts", tags=["posts"])
     "",
     response_model=PostResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[
+        Depends(
+            user_rate_limit(
+                scope="posts:create",
+                limit=settings.RATE_LIMIT_POST_WRITE_MAX_REQUESTS,
+                window_seconds=settings.RATE_LIMIT_POST_WRITE_WINDOW_SECONDS,
+            )
+        )
+    ],
 )
 async def create_post_endpoint(
         post_in: PostCreate,

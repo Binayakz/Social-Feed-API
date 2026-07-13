@@ -1,12 +1,26 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.core.config import settings
+from app.core.redis import close_redis, init_redis
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_redis(app)
+    try:
+        yield
+    finally:
+        await close_redis(app)
+
 
 app = FastAPI(
     title=settings.APP_NAME,
     debug=settings.DEBUG,
+    lifespan=lifespan,
 )
 
 app.add_middleware(
