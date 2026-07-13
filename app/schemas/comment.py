@@ -47,3 +47,9 @@ class CommentResponse(BaseModel):
     replies: list[ReplyResponse] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+
+
+class CommentPage(BaseModel):
+    items: list[CommentResponse]
+    next_cursor: str | None
+    has_more: bool

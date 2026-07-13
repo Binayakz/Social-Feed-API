@@ -1,14 +1,10 @@
 import uuid
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 from app.api.deps import CurrentUser, DBSession
-from app.schemas.comment import CommentCreate, CommentResponse
-from app.services.comment_service import (
-    build_comment_response,
-    create_comment,
-    list_post_comments,
-)
+from app.schemas.comment import CommentCreate, CommentPage, CommentResponse
+from app.services.comment_service import create_comment, list_post_comments
 
 router = APIRouter(prefix="/posts", tags=["comments"])
 
@@ -36,26 +32,32 @@ async def create_comment_endpoint(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
+    from app.services.comment_service import build_comment_response
+
     return build_comment_response(comment, current_user.id)
 
 
 @router.get(
     "/{post_id}/comments",
-    response_model=list[CommentResponse],
+    response_model=CommentPage,
     status_code=status.HTTP_200_OK,
 )
 async def list_post_comments_endpoint(
         post_id: uuid.UUID,
         db: DBSession,
         current_user: CurrentUser,
-) -> list[CommentResponse]:
+        limit: int = Query(default=20, ge=1, le=100),
+        cursor: str | None = Query(default=None),
+) -> CommentPage:
     try:
-        comments = await list_post_comments(
+        return await list_post_comments(
             db=db,
             post_id=post_id,
             viewer_id=current_user.id,
+            limit=limit,
+            cursor=cursor,
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-
-    return [build_comment_response(comment, current_user.id) for comment in comments]
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
