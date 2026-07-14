@@ -13,6 +13,12 @@ class CommentAuthorResponse(BaseModel):
     full_name: str
 
 
+class CommentLikerPreview(BaseModel):
+    id: uuid.UUID
+    full_name: str
+    initials: str
+
+
 class CommentCreate(BaseModel):
     content: str = Field(min_length=1, max_length=5000)
     parent_id: uuid.UUID | None = None
@@ -29,6 +35,7 @@ class ReplyResponse(BaseModel):
     author: CommentAuthorResponse
     like_count: int
     liked_by_me: bool
+    likers_preview: list[CommentLikerPreview] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -44,6 +51,7 @@ class CommentResponse(BaseModel):
     author: CommentAuthorResponse
     like_count: int
     liked_by_me: bool
+    likers_preview: list[CommentLikerPreview] = Field(default_factory=list)
     replies: list[ReplyResponse] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime

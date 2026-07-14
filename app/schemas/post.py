@@ -15,6 +15,12 @@ class PostAuthorResponse(BaseModel):
     full_name: str
 
 
+class PostLikerPreview(BaseModel):
+    id: uuid.UUID
+    full_name: str
+    initials: str
+
+
 class PostCreate(BaseModel):
     content: str = Field(min_length=1, max_length=5000)
     image_url: str | None = Field(default=None, max_length=2048)
@@ -33,6 +39,7 @@ class PostResponse(BaseModel):
     like_count: int
     comment_count: int
     liked_by_me: bool
+    likers_preview: list[PostLikerPreview] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

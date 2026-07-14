@@ -2,23 +2,37 @@ import base64
 import binascii
 import json
 import uuid
+from collections import defaultdict
 from datetime import datetime
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import Comment, Post, PostVisibility
+from app.models import Comment, CommentLike, Post, PostVisibility, User
 from app.schemas.comment import (
     CommentAuthorResponse,
     CommentCreate,
+    CommentLikerPreview,
     CommentPage,
     CommentResponse,
     ReplyResponse,
 )
 
+COMMENT_LIKERS_PREVIEW_LIMIT = 3
 
-def build_reply_response(reply: Comment, viewer_id: uuid.UUID) -> ReplyResponse:
+
+def _build_initials(first_name: str, last_name: str) -> str:
+    first = first_name[:1].upper() if first_name else ""
+    last = last_name[:1].upper() if last_name else ""
+    return f"{first}{last}" or "?"
+
+
+def build_reply_response(
+        reply: Comment,
+        viewer_id: uuid.UUID,
+        likers_preview: list[CommentLikerPreview] | None = None,
+) -> ReplyResponse:
     return ReplyResponse(
         id=reply.id,
         post_id=reply.post_id,
@@ -28,12 +42,19 @@ def build_reply_response(reply: Comment, viewer_id: uuid.UUID) -> ReplyResponse:
         author=CommentAuthorResponse.model_validate(reply.author),
         like_count=len(reply.likes),
         liked_by_me=any(like.user_id == viewer_id for like in reply.likes),
+        likers_preview=likers_preview or [],
         created_at=reply.created_at,
         updated_at=reply.updated_at,
     )
 
 
-def build_comment_response(comment: Comment, viewer_id: uuid.UUID) -> CommentResponse:
+def build_comment_response(
+        comment: Comment,
+        viewer_id: uuid.UUID,
+        preview_map: dict[uuid.UUID, list[CommentLikerPreview]] | None = None,
+) -> CommentResponse:
+    preview_map = preview_map or {}
+
     return CommentResponse(
         id=comment.id,
         post_id=comment.post_id,
@@ -43,7 +64,15 @@ def build_comment_response(comment: Comment, viewer_id: uuid.UUID) -> CommentRes
         author=CommentAuthorResponse.model_validate(comment.author),
         like_count=len(comment.likes),
         liked_by_me=any(like.user_id == viewer_id for like in comment.likes),
-        replies=[build_reply_response(reply, viewer_id) for reply in comment.replies],
+        likers_preview=preview_map.get(comment.id, []),
+        replies=[
+            build_reply_response(
+                reply,
+                viewer_id,
+                likers_preview=preview_map.get(reply.id, []),
+            )
+            for reply in comment.replies
+        ],
         created_at=comment.created_at,
         updated_at=comment.updated_at,
     )
@@ -95,6 +124,38 @@ async def _get_visible_post(
         )
     )
     return result.scalar_one_or_none()
+
+
+async def _get_comment_likers_preview_map(
+        db: AsyncSession,
+        comment_ids: list[uuid.UUID],
+        preview_limit: int = COMMENT_LIKERS_PREVIEW_LIMIT,
+) -> dict[uuid.UUID, list[CommentLikerPreview]]:
+    if not comment_ids:
+        return {}
+
+    result = await db.execute(
+        select(CommentLike.comment_id, User)
+        .join(User, User.id == CommentLike.user_id)
+        .where(CommentLike.comment_id.in_(comment_ids))
+        .order_by(CommentLike.comment_id, CommentLike.created_at.desc(), CommentLike.id.desc())
+    )
+
+    preview_map: dict[uuid.UUID, list[CommentLikerPreview]] = defaultdict(list)
+
+    for comment_id, user in result.all():
+        if len(preview_map[comment_id]) >= preview_limit:
+            continue
+
+        preview_map[comment_id].append(
+            CommentLikerPreview(
+                id=user.id,
+                full_name=user.full_name,
+                initials=_build_initials(user.first_name, user.last_name),
+            )
+        )
+
+    return dict(preview_map)
 
 
 async def create_comment(
@@ -179,13 +240,27 @@ async def list_post_comments(
     has_more = len(comments) > limit
     visible_comments = comments[:limit]
 
+    comment_ids: list[uuid.UUID] = []
+    for comment in visible_comments:
+        comment_ids.append(comment.id)
+        comment_ids.extend(reply.id for reply in comment.replies)
+
+    preview_map = await _get_comment_likers_preview_map(db, comment_ids)
+
     next_cursor = None
     if has_more and visible_comments:
         last_comment = visible_comments[-1]
         next_cursor = _encode_cursor(last_comment.created_at, last_comment.id)
 
     return CommentPage(
-        items=[build_comment_response(comment, viewer_id) for comment in visible_comments],
+        items=[
+            build_comment_response(
+                comment,
+                viewer_id,
+                preview_map=preview_map,
+            )
+            for comment in visible_comments
+        ],
         next_cursor=next_cursor,
         has_more=has_more,
     )

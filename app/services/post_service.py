@@ -1,14 +1,23 @@
 import base64
 import json
 import uuid
+from collections import defaultdict
 from datetime import datetime
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import Comment, Post, PostLike, PostVisibility
-from app.schemas.post import PostAuthorResponse, PostCreate, PostFeedPage, PostResponse
+from app.models import Comment, Post, PostLike, PostVisibility, User
+from app.schemas.post import (
+    PostAuthorResponse,
+    PostCreate,
+    PostFeedPage,
+    PostLikerPreview,
+    PostResponse,
+)
+
+POST_LIKERS_PREVIEW_LIMIT = 3
 
 
 def _visibility_clause(viewer_id: uuid.UUID):
@@ -18,7 +27,16 @@ def _visibility_clause(viewer_id: uuid.UUID):
     )
 
 
-def _serialize_post_row(row) -> PostResponse:
+def _build_initials(first_name: str, last_name: str) -> str:
+    first = first_name[:1].upper() if first_name else ""
+    last = last_name[:1].upper() if last_name else ""
+    return f"{first}{last}" or "?"
+
+
+def _serialize_post_row(
+        row,
+        likers_preview: list[PostLikerPreview] | None = None,
+) -> PostResponse:
     post: Post = row[0]
 
     return PostResponse(
@@ -31,6 +49,7 @@ def _serialize_post_row(row) -> PostResponse:
         like_count=int(row.like_count or 0),
         comment_count=int(row.comment_count or 0),
         liked_by_me=bool(row.liked_by_me),
+        likers_preview=likers_preview or [],
         created_at=post.created_at,
         updated_at=post.updated_at,
     )
@@ -115,6 +134,38 @@ def _cursor_clause(cursor: str):
     )
 
 
+async def _get_post_likers_preview_map(
+        db: AsyncSession,
+        post_ids: list[uuid.UUID],
+        preview_limit: int = POST_LIKERS_PREVIEW_LIMIT,
+) -> dict[uuid.UUID, list[PostLikerPreview]]:
+    if not post_ids:
+        return {}
+
+    result = await db.execute(
+        select(PostLike.post_id, User)
+        .join(User, User.id == PostLike.user_id)
+        .where(PostLike.post_id.in_(post_ids))
+        .order_by(PostLike.post_id, PostLike.created_at.desc(), PostLike.id.desc())
+    )
+
+    preview_map: dict[uuid.UUID, list[PostLikerPreview]] = defaultdict(list)
+
+    for post_id, user in result.all():
+        if len(preview_map[post_id]) >= preview_limit:
+            continue
+
+        preview_map[post_id].append(
+            PostLikerPreview(
+                id=user.id,
+                full_name=user.full_name,
+                initials=_build_initials(user.first_name, user.last_name),
+            )
+        )
+
+    return dict(preview_map)
+
+
 async def create_post(
         db: AsyncSession,
         author_id: uuid.UUID,
@@ -158,7 +209,12 @@ async def get_post_by_id_for_viewer(
     if row is None:
         return None
 
-    return _serialize_post_row(row)
+    preview_map = await _get_post_likers_preview_map(db, [post_id])
+
+    return _serialize_post_row(
+        row,
+        likers_preview=preview_map.get(post_id, []),
+    )
 
 
 async def list_feed_posts(
@@ -184,7 +240,16 @@ async def list_feed_posts(
     has_more = len(rows) > limit
     visible_rows = rows[:limit]
 
-    items = [_serialize_post_row(row) for row in visible_rows]
+    post_ids = [row[0].id for row in visible_rows]
+    preview_map = await _get_post_likers_preview_map(db, post_ids)
+
+    items = [
+        _serialize_post_row(
+            row,
+            likers_preview=preview_map.get(row[0].id, []),
+        )
+        for row in visible_rows
+    ]
 
     next_cursor = None
     if has_more and visible_rows:
