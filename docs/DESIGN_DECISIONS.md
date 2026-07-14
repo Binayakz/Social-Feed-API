@@ -2,212 +2,341 @@
 
 ## 1. FastAPI as the API Framework
 
-FastAPI was chosen because it provides:
-- strong request/response validation through Pydantic
-- clean async support
-- automatic OpenAPI documentation
-- fast iteration speed for backend API development
+FastAPI was chosen for:
 
-This makes it a strong fit for a take-home backend project where correctness and clarity matter.
+- strong request/response validation
+- async support
+- automatic OpenAPI docs
+- a small amount of framework overhead for a take-home backend
+
+It fits well for an API-first project where speed of implementation still needs good structure.
 
 ## 2. PostgreSQL as the Primary Database
 
-PostgreSQL was selected because it is a mature relational database with:
-- strong transactional guarantees
-- good indexing support
-- excellent fit for relational social-feed data
-- wide production use
+PostgreSQL was chosen because the domain is strongly relational:
 
-The data model for users, posts, comments, and likes is naturally relational, so PostgreSQL is a better fit than a document store for this design.
+- users
+- posts
+- comments
+- likes
+- visibility rules
+
+Why it fits:
+
+- mature indexing support
+- transactional consistency
+- good SQL ergonomics for aggregate queries
 
 ## 3. SQLAlchemy 2.0 Async ORM
 
-SQLAlchemy async support was used to keep the stack aligned with FastAPI’s async request handling.
+SQLAlchemy async keeps the data layer aligned with FastAPI’s async request model while still allowing more explicit SQL when needed.
 
-Reasons:
-- good ecosystem maturity
-- clear ORM modeling
-- compatibility with Alembic
-- flexible query control when moving from simple ORM loading to more optimized SQL later
+Why this mattered:
+
+- easy ORM modeling early on
+- compatible with Alembic
+- flexible enough to move from simple relationship loading to optimized SQL aggregation later
 
 ## 4. Alembic for Schema Migrations
 
-Schema changes are managed through Alembic rather than manual database edits.
+Schema changes are tracked with Alembic rather than manual edits.
 
-Reasons:
-- repeatable deployments
-- explicit schema history
-- safer promotion across local and deployed environments
+Why:
+
+- repeatable local and EC2 deployments
+- explicit migration history
+- safer promotion across environments
 
 ## 5. UUID Primary Keys
 
-UUIDs are used for major entities instead of integer IDs.
+UUIDs are used for major entities.
 
-Reasons:
-- less predictable identifiers
-- easier merging/distribution if system scale grows
-- cleaner external exposure in APIs
+Why:
+
+- less predictable public identifiers
+- easier to expose in APIs
+- works well if the system ever grows beyond a single-node mental model
 
 Tradeoff:
-- larger indexes than integers
 
-For this project, the benefits outweigh the cost.
+- larger indexes than integer keys
 
 ## 6. JWT-Based Authentication
 
-The system uses stateless JWT authentication instead of server-side sessions.
+The project uses stateless JWT bearer auth.
 
-Reasons:
+Why:
+
 - simple frontend integration
-- easy protection of API routes
-- no session store required
-- straightforward deploy model for a single API service
+- no session table required
+- straightforward deployment in a single API service
 
-## 7. HTTP Bearer Auth Instead of OAuth Password Flow in Swagger
+Current tradeoff:
 
-Protected routes use bearer token auth through `HTTPBearer`.
+- no refresh-token/session rotation yet
 
-Reason:
-- the backend uses a custom JSON login flow, not a full OAuth2 password token exchange
-- `HTTPBearer` matches the real client usage better
-- Swagger becomes simpler for manual testing
+## 7. HTTP Bearer for Protected Routes
 
-## 8. Public/Private Post Visibility
+Protected endpoints use bearer tokens via `HTTPBearer`.
 
-Posts are modeled with an explicit visibility enum:
+Why:
+
+- the project uses a custom JSON login flow
+- this matches the real client integration better than pretending to use OAuth password flow
+- Swagger testing stays straightforward
+
+## 8. Explicit Public/Private Post Visibility
+
+Posts use an enum:
+
 - `public`
 - `private`
 
-Reason:
-- this keeps authorization rules explicit in the database and service layer
-- supports the assignment requirement directly
+Why:
 
-Visibility is enforced in service queries, not left to frontend behavior.
+- maps directly to the assignment requirement
+- keeps visibility rules explicit in both storage and query logic
+
+Visibility is enforced in service-layer queries, not delegated to the frontend.
 
 ## 9. Replies Stored in the Comments Table
 
-Replies are stored in the same `comments` table via `parent_id`.
+Replies use `comments.parent_id` instead of a separate replies table.
 
-Reasons:
+Why:
+
 - simpler schema
-- no separate replies table needed
-- same rules and like system can be reused
+- reuse of comment-like logic
+- one set of models and constraints
 
 Tradeoff:
-- nested reply depth must be enforced by logic
+
+- reply depth must be limited in application logic
 
 ## 10. One-Level Reply Limit
 
-The system allows one level of replies only.
+Only one reply level is supported.
 
-Reason:
-- matches the assignment need without introducing recursive tree complexity
-- keeps query and response logic simpler
+Why:
 
-This is a deliberate simplification, not an accidental limitation.
+- it matches the stated product need
+- keeps read and write logic manageable
+- avoids recursive tree complexity in a take-home scope
 
 ## 11. Separate Like Tables for Posts and Comments
 
-Two like tables are used:
+Two tables are used:
+
 - `post_likes`
 - `comment_likes`
 
-Reasons:
+Why:
+
 - simple uniqueness constraints
-- straightforward queries
-- avoids polymorphic-like-table complexity
+- easy query composition
+- avoids polymorphic association complexity
 
 Replies are covered automatically because replies are stored as comments.
 
-## 12. Separate Upload Endpoint
+## 12. Feed State Is Returned Directly
 
-Image upload is handled separately from post creation.
+Post and comment responses include frontend-ready state such as:
 
-Flow:
-1. upload file
-2. receive URL
-3. create post with `image_url`
-
-Reasons:
-- keeps post creation API simple
-- isolates storage concerns
-- frontend can manage upload progress separately
-
-## 13. S3 for Image Storage
-
-Uploaded images are stored in S3 instead of local disk.
-
-Reasons:
-- better deployment portability
-- works naturally across containers and EC2 restarts
-- supports future CDN/public serving options
-
-## 14. Public Image Prefix Strategy
-
-The current design uses a restricted public-read prefix for uploaded post images.
-
-Reason:
-- simplest way to make uploaded images frontend-renderable for this assignment
-- avoids more complex private-media delivery setup
-
-Tradeoff:
-- for stricter production use, CloudFront or presigned GET URLs would be preferable
-
-## 15. Offset Pagination for the Feed
-
-The feed currently uses offset/limit pagination.
-
-Reason:
-- simpler to implement and explain
-- enough for assignment/demo usage
-
-Tradeoff:
-- not ideal at very high scale
-
-Future improvement:
-- cursor/keyset pagination using `(created_at, id)`
-
-## 16. Response-Level Feed State
-
-The API returns:
 - `like_count`
 - `comment_count`
 - `liked_by_me`
+- `likers_preview`
 
-Reason:
-- this makes the frontend much easier to build
-- reduces follow-up calls for common feed rendering
+Why:
 
-Current tradeoff:
-- some of this state is still derived in application logic and can be pushed down into optimized SQL later
+- lowers frontend complexity
+- reduces follow-up API calls
+- makes feed rendering direct and predictable
 
-## 17. Migration-on-Startup in Docker
+## 13. DB-Side Aggregation for Feed and Comment State
 
-The Docker startup command runs:
-- `alembic upgrade head`
-- then starts the app
+Counts and liked-state are computed in SQL rather than only by relationship loading.
 
-Reason:
-- keeps deployed schema aligned with code automatically
-- reduces manual deployment steps
+Why:
+
+- better scaling behavior
+- avoids loading large like collections just to compute booleans/counts
+- fits feed-style read patterns much better
+
+This was an intentional evolution from the simpler first-pass approach.
+
+## 14. Cursor Pagination for Posts and Comments
+
+Posts and comments use cursor/keyset pagination based on `(created_at, id)`.
+
+Why:
+
+- scales better than offset for large feeds
+- gives stable ordering across pages
+- matches the “many posts and reads” requirement more credibly
 
 Tradeoff:
-- production teams sometimes prefer a separate migration step
 
-For this project, the simpler deploy path is worth it.
+- response shape becomes page-based instead of plain arrays
 
-## 18. Current Known Tradeoffs
+## 15. Indexes Matched to Feed Access Patterns
+
+The schema includes indexes aligned with:
+
+- author feed scans
+- public feed scans
+- post comment scans
+- reply lookups
+
+Why:
+
+- query shape changes are not enough without matching indexes
+- feed and comment pagination benefit directly from these access-path indexes
+
+## 16. Separate Upload Endpoint for Post Images
+
+The system keeps `POST /uploads/post-image` as a dedicated upload endpoint.
+
+Why:
+
+- isolates storage concerns
+- useful for clients that prefer upload-first flows
+- keeps the original JSON post endpoint simple
+
+## 17. Additional Multipart Compose Endpoint
+
+A second post-creation path was added:
+
+- `POST /posts/compose`
+
+Why:
+
+- simplifies clients that want one request for image + post creation
+- allows either text-only, image-only, or text+image posts
+- keeps the original `POST /posts` endpoint unchanged for compatibility
+
+Tradeoff:
+
+- because `posts.content` remains non-null, image-only posts currently store an empty string for content
+
+## 18. S3 for Media Storage
+
+Post images and profile images are stored in S3.
+
+Why:
+
+- durable storage outside the container
+- works across restarts and redeploys
+- easy public URL generation for frontend rendering
+
+## 19. Restricted Public Prefix Strategy
+
+The current design allows public reads only for selected object prefixes such as:
+
+- `post-images/*`
+- `profile-images/*`
+
+Why:
+
+- very simple for assignment delivery
+- avoids opening the whole bucket
+
+Tradeoff:
+
+- stricter production setups might prefer CloudFront or presigned GET URLs
+
+## 20. Hardened Image Upload Validation
+
+Upload validation checks:
+
+- max size
+- declared content type
+- magic bytes / file signature
+- real image decode through Pillow
+- max pixel count
+
+Why:
+
+- client-provided MIME type alone is not trustworthy
+- images are a common abuse surface
+- this is a strong security improvement with limited implementation cost
+
+## 21. Optional Profile Images on Users
+
+Users have optional `profile_image_url`.
+
+Why:
+
+- better frontend UX than initials-only avatars
+- still keeps initials as the fallback
+- stays small enough for the current scope
+
+Tradeoff:
+
+- replacing an avatar does not currently delete the old file from S3
+
+## 22. Redis / Valkey for Rate Limiting
+
+Rate limiting uses Redis-compatible storage rather than Postgres.
+
+Why:
+
+- simple atomic counters
+- avoids polluting relational storage with short-lived rate-limit data
+- appropriate for auth and write-path protection
+
+Protected areas include:
+
+- login
+- register
+- post creation
+- comment creation
+- likes
+- uploads
+
+## 23. Deployment Uses Commit-SHA Images
+
+The deployment flow builds both:
+
+- commit-SHA tag
+- `latest`
+
+but EC2 is expected to run the commit-SHA image.
+
+Why:
+
+- avoids ambiguity about what code is running
+- makes debugging bad deploys much easier
+
+The workflow now verifies the running image and waits for `/health`.
+
+## 24. Post-Deploy Cleanup on EC2
+
+Deployment cleanup prunes:
+
+- stopped containers
+- unused images
+- build cache
+- unused volumes
+- old logs and package caches
+
+Why:
+
+- small EC2 root volumes fill up quickly with repeated Docker deploys
+- this keeps deployment reliability higher over time
+
+## 25. Current Tradeoffs
 
 The project intentionally prioritizes:
+
 - correctness
-- feature completeness
 - clarity
+- strong assignment coverage
+- pragmatic production-minded improvements
 
-over advanced production optimizations.
+Still left intentionally simple:
 
-Known areas for future improvement:
-- DB-side feed aggregation
-- cursor pagination
-- rate limiting
-- stronger upload content validation
-- broader tests
+- no refresh-token architecture yet
+- no direct-to-S3 browser uploads yet
+- no avatar/file deletion lifecycle
+- no broad automated test suite yet
