@@ -18,6 +18,7 @@ from app.schemas.post import (
 )
 
 POST_LIKERS_PREVIEW_LIMIT = 3
+POST_CONTENT_MAX_LENGTH = 5000
 
 
 def _visibility_clause(viewer_id: uuid.UUID):
@@ -167,16 +168,19 @@ async def _get_post_likers_preview_map(
     return dict(preview_map)
 
 
-async def create_post(
+async def _create_and_load_post(
         db: AsyncSession,
+        *,
         author_id: uuid.UUID,
-        post_in: PostCreate,
+        content: str,
+        image_url: str | None,
+        visibility: PostVisibility,
 ) -> PostResponse:
     post = Post(
         author_id=author_id,
-        content=post_in.content,
-        image_url=post_in.image_url,
-        visibility=post_in.visibility,
+        content=content,
+        image_url=image_url,
+        visibility=visibility,
     )
 
     db.add(post)
@@ -191,6 +195,46 @@ async def create_post(
         raise LookupError("Created post could not be loaded")
 
     return created_post
+
+
+async def create_post(
+        db: AsyncSession,
+        author_id: uuid.UUID,
+        post_in: PostCreate,
+) -> PostResponse:
+    return await _create_and_load_post(
+        db=db,
+        author_id=author_id,
+        content=post_in.content,
+        image_url=post_in.image_url,
+        visibility=post_in.visibility,
+    )
+
+
+async def create_post_with_optional_content(
+        db: AsyncSession,
+        *,
+        author_id: uuid.UUID,
+        content: str | None,
+        image_url: str | None,
+        visibility: PostVisibility,
+) -> PostResponse:
+    normalized_content = (content or "").strip()
+    normalized_image_url = (image_url or "").strip() or None
+
+    if not normalized_content and not normalized_image_url:
+        raise ValueError("Either content or image is required")
+
+    if len(normalized_content) > POST_CONTENT_MAX_LENGTH:
+        raise ValueError(f"Content must be at most {POST_CONTENT_MAX_LENGTH} characters")
+
+    return await _create_and_load_post(
+        db=db,
+        author_id=author_id,
+        content=normalized_content,
+        image_url=normalized_image_url,
+        visibility=visibility,
+    )
 
 
 async def get_post_by_id_for_viewer(
