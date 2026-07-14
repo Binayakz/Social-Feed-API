@@ -160,6 +160,7 @@ async def _get_post_likers_preview_map(
                 id=user.id,
                 full_name=user.full_name,
                 initials=_build_initials(user.first_name, user.last_name),
+                profile_image_url=user.profile_image_url,
             )
         )
 

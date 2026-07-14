@@ -20,6 +20,7 @@ class PostLikerPreview(BaseModel):
     id: uuid.UUID
     full_name: str
     initials: str
+    profile_image_url: str | None
 
 
 class PostCreate(BaseModel):
