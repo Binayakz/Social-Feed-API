@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     S3_ENDPOINT_URL: str | None = None
     S3_OBJECT_PREFIX: str = "post-images"
     MAX_IMAGE_UPLOAD_BYTES: int = 10 * 1024 * 1024
+    MAX_IMAGE_PIXELS: int = 25_000_000
 
     REDIS_URL: str = "redis://localhost:6379/0"
     RATE_LIMIT_ENABLED: bool = True
