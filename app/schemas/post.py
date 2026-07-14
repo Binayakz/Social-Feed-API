@@ -13,6 +13,7 @@ class PostAuthorResponse(BaseModel):
     first_name: str
     last_name: str
     full_name: str
+    profile_image_url: str | None
 
 
 class PostLikerPreview(BaseModel):

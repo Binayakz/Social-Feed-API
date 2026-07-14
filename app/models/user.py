@@ -22,16 +22,19 @@ class User(TimestampMixin, Base):
     last_name: Mapped[str] = mapped_column(String(80), nullable=False)
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    profile_image_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
 
-    posts: Mapped[list["Post"]] = relationship(back_populates="author", passive_deletes=True, )
+    posts: Mapped[list["Post"]] = relationship(
+        back_populates="author",
+        passive_deletes=True,
+    )
     comments: Mapped[list["Comment"]] = relationship(
         back_populates="author",
         passive_deletes=True,
     )
-
     post_likes: Mapped[list["PostLike"]] = relationship(
         back_populates="user",
         passive_deletes=True,

@@ -19,6 +19,7 @@ class UserResponse(UserBase):
 
     id: uuid.UUID
     full_name: str
+    profile_image_url: str | None
     is_active: bool
     created_at: datetime
     updated_at: datetime

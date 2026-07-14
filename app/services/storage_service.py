@@ -155,9 +155,9 @@ def _validate_image_bytes(data: bytes, detected_content_type: str) -> None:
         )
 
 
-def _build_key(user_id: uuid.UUID, content_type: str) -> str:
+def _build_key(object_prefix: str, user_id: uuid.UUID, content_type: str) -> str:
     extension = _ALLOWED_IMAGE_TYPES[content_type]["extension"]
-    return f"{settings.S3_OBJECT_PREFIX.rstrip('/')}/{user_id}/{uuid.uuid4().hex}{extension}"
+    return f"{object_prefix.rstrip('/')}/{user_id}/{uuid.uuid4().hex}{extension}"
 
 
 def _upload_bytes(data: bytes, key: str, content_type: str) -> None:
@@ -172,7 +172,12 @@ def _upload_bytes(data: bytes, key: str, content_type: str) -> None:
     )
 
 
-async def upload_post_image(*, user_id: uuid.UUID, file: UploadFile) -> UploadedImageResponse:
+async def _upload_image(
+        *,
+        user_id: uuid.UUID,
+        file: UploadFile,
+        object_prefix: str,
+) -> UploadedImageResponse:
     declared_content_type = (file.content_type or "").lower().strip()
     _validate_declared_content_type(declared_content_type)
 
@@ -185,7 +190,7 @@ async def upload_post_image(*, user_id: uuid.UUID, file: UploadFile) -> Uploaded
 
     await run_in_threadpool(_validate_image_bytes, data, safe_content_type)
 
-    key = _build_key(user_id, safe_content_type)
+    key = _build_key(object_prefix, user_id, safe_content_type)
     await run_in_threadpool(_upload_bytes, data, key, safe_content_type)
 
     return UploadedImageResponse(
@@ -193,4 +198,20 @@ async def upload_post_image(*, user_id: uuid.UUID, file: UploadFile) -> Uploaded
         url=f"{settings.S3_PUBLIC_BASE_URL.rstrip('/')}/{key}",
         content_type=safe_content_type,
         size=len(data),
+    )
+
+
+async def upload_post_image(*, user_id: uuid.UUID, file: UploadFile) -> UploadedImageResponse:
+    return await _upload_image(
+        user_id=user_id,
+        file=file,
+        object_prefix=settings.S3_OBJECT_PREFIX,
+    )
+
+
+async def upload_profile_image(*, user_id: uuid.UUID, file: UploadFile) -> UploadedImageResponse:
+    return await _upload_image(
+        user_id=user_id,
+        file=file,
+        object_prefix=settings.S3_PROFILE_IMAGE_PREFIX,
     )

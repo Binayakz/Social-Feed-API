@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     S3_PUBLIC_BASE_URL: str
     S3_ENDPOINT_URL: str | None = None
     S3_OBJECT_PREFIX: str = "post-images"
+    S3_PROFILE_IMAGE_PREFIX: str = "profile-images"
     MAX_IMAGE_UPLOAD_BYTES: int = 10 * 1024 * 1024
     MAX_IMAGE_PIXELS: int = 25_000_000
 

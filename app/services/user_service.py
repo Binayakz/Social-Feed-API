@@ -33,6 +33,20 @@ async def create_user(db: AsyncSession, user_in: UserCreate) -> User:
     return user
 
 
+async def update_user_profile_image(
+        db: AsyncSession,
+        user: User,
+        profile_image_url: str,
+) -> User:
+    user.profile_image_url = profile_image_url
+
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+
+    return user
+
+
 async def authenticate_user(
         db: AsyncSession,
         email: str,
