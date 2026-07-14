@@ -32,7 +32,7 @@ async def create_comment_endpoint(
         current_user: CurrentUser,
 ) -> CommentResponse:
     try:
-        comment = await create_comment(
+        return await create_comment(
             db=db,
             post_id=post_id,
             author_id=current_user.id,
@@ -42,10 +42,6 @@ async def create_comment_endpoint(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-    from app.services.comment_service import build_comment_response
-
-    return build_comment_response(comment, current_user.id)
 
 
 @router.get(
