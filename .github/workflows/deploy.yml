@@ -127,11 +127,23 @@ jobs:
             fi
 
             echo "Container is running successfully."
+            
             docker ps \
               --filter "name=$CONTAINER_NAME" \
               --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'
-
-            echo "Removing unused Docker images..."
-            docker image prune --force
-
+            
+            echo "Removing unused Docker artifacts..."
+            
+            docker container prune -f || true
+            docker image prune -a -f || true
+            docker builder prune -a -f || true
+            docker volume prune -f || true
+            
+            echo "Vacuuming system logs..."
+            sudo journalctl --vacuum-time=7d || true
+            
+            echo "Cleaning apt cache..."
+            sudo apt clean || true
+            sudo apt autoremove -y || true
+            
             echo "Deployment completed successfully."
